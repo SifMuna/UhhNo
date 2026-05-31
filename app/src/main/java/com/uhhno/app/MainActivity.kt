@@ -5,15 +5,14 @@ import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.pm.PackageManager
 import android.os.*
-import android.speech.SpeechRecognizer
 import android.view.animation.DecelerateInterpolator
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.snackbar.Snackbar
 import com.uhhno.app.databinding.ActivityMainBinding
+import org.vosk.Model
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -25,6 +24,8 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     private val fillerAdapter = FillerLogAdapter()
 
     private var isListening = false
+    private var modelReady = false
+    private var model: Model? = null
     private var fillerCount = 0
     private var sessionStartMs = 0L
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -45,6 +46,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
         setupRecyclerView()
         setupClickListeners()
         updateUI()
+        initModel()
     }
 
     private fun setupRecyclerView() {
@@ -64,6 +66,34 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
             binding.tvLastFiller.text = ""
             binding.tvFillerCount.text = "0"
         }
+    }
+
+    // ── Model init ────────────────────────────────────────────────────────────
+
+    private fun initModel() {
+        binding.tvStatus.text = if (ModelLoader.isReady(this)) "Loading speech model…" else "Downloading speech model…"
+        binding.btnMic.isEnabled = false
+
+        ModelLoader.load(
+            context = this,
+            onProgress = { msg -> runOnUiThread { if (!isDestroyed) binding.tvStatus.text = msg } },
+            onReady = { m ->
+                runOnUiThread {
+                    if (isDestroyed) { m.close(); return@runOnUiThread }
+                    model = m
+                    modelReady = true
+                    updateUI()
+                }
+            },
+            onError = { e ->
+                runOnUiThread {
+                    if (!isDestroyed) {
+                        binding.tvStatus.text = "Model load failed"
+                        Snackbar.make(binding.root, "Could not load speech model: ${e.message}", Snackbar.LENGTH_LONG).show()
+                    }
+                }
+            }
+        )
     }
 
     // ── Permissions ──────────────────────────────────────────────────────────
@@ -96,14 +126,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     // ── Session lifecycle ─────────────────────────────────────────────────────
 
     private fun startSession() {
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            AlertDialog.Builder(this)
-                .setTitle("Speech Recognition Unavailable")
-                .setMessage("This device doesn't have a compatible speech recognition service. Install Google app or check your device settings.")
-                .setPositiveButton("OK", null)
-                .show()
-            return
-        }
+        val m = model ?: return
 
         isListening = true
         fillerCount = 0
@@ -115,8 +138,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
         updateUI()
         timerHandler.post(timerRunnable)
 
-        speechService = SpeechService(this, this)
-        speechService?.start()
+        speechService = SpeechService(this).also { it.start(m) }
 
         if (binding.switchRecord.isChecked) {
             audioRecorder = AudioRecorder(this)
@@ -147,6 +169,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
 
     private fun updateUI() {
         binding.tvFillerCount.text = fillerCount.toString()
+        binding.btnMic.isEnabled = modelReady
         if (isListening) {
             binding.btnMic.text = "STOP"
             binding.btnMic.backgroundTintList =
@@ -157,7 +180,9 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
             binding.btnMic.text = "TAP TO START"
             binding.btnMic.backgroundTintList =
                 ContextCompat.getColorStateList(this, R.color.accent)
-            binding.tvStatus.text = if (fillerCount > 0) "Session ended" else "Ready"
+            if (modelReady) {
+                binding.tvStatus.text = if (fillerCount > 0) "Session ended" else "Ready"
+            }
             binding.tvCurrentText.text = ""
             binding.switchRecord.isEnabled = true
         }
@@ -230,18 +255,15 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
         binding.tvCurrentText.text = text
         val curr = text.lowercase().trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
 
-        // Find where the word list diverges from the previous partial
         var divergeAt = minOf(prevWordList.size, curr.size)
         for (i in 0 until divergeAt) {
             if (prevWordList[i] != curr[i]) { divergeAt = i; break }
         }
 
-        // Single-word fillers among newly arrived words
         for (i in divergeAt until curr.size) {
             if (FillerDetector.isSingleWordFiller(curr[i])) onFillerDetected(curr[i])
         }
 
-        // Two-word fillers: check bigrams where the second word is new
         val bigramFrom = maxOf(0, divergeAt - 1)
         for (i in bigramFrom until curr.size - 1) {
             if (i + 1 >= divergeAt) {
@@ -259,13 +281,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     }
 
     override fun onError(error: Int) {
-        // SpeechService auto-restarts; surface only fatal errors
-        if (error == -1) {
-            runOnUiThread {
-                Snackbar.make(binding.root, "Speech recognition unavailable", Snackbar.LENGTH_LONG).show()
-                if (isListening) stopSession()
-            }
-        }
+        Snackbar.make(binding.root, "Recognition error", Snackbar.LENGTH_SHORT).show()
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -278,6 +294,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     override fun onDestroy() {
         super.onDestroy()
         timerHandler.removeCallbacksAndMessages(null)
+        model?.close()
     }
 
     companion object {
