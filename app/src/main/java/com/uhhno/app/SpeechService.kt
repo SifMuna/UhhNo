@@ -25,7 +25,11 @@ class SpeechService(private val listener: SpeechListener) {
     @Volatile private var active = false
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    fun start(model: Model) {
+    fun start(model: Model, settings: SpeechSettings) {
+        val threshold = settings.threshold
+        val hesitationMs = settings.hesitationMs
+        Log.d(TAG, "start: threshold=$threshold  hesitationMs=${hesitationMs}ms")
+
         val minBuf = AudioRecord.getMinBufferSize(
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -33,21 +37,22 @@ class SpeechService(private val listener: SpeechListener) {
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC, SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-            maxOf(minBuf, CHUNK_SAMPLES * 2 * 4)   // at least 4 chunks of headroom
+            maxOf(minBuf, CHUNK_SAMPLES * 2 * 4)
         ).also { it.startRecording() }
 
         active = true
-        captureThread = Thread(::captureLoop, "vosk-capture")
+        captureThread = Thread({ captureLoop(threshold, hesitationMs) }, "vosk-capture")
         captureThread!!.start()
     }
 
-    private fun captureLoop() {
+    private fun captureLoop(speechThreshold: Float, hesitationMs: Long) {
         val rec = recognizer ?: return
         val ar = audioRecord ?: return
         val buf = ShortArray(CHUNK_SAMPLES)
 
         var lastPartial = ""
         var voicedMs = 0L
+        var silenceMs = 0L
         var lastTime = System.currentTimeMillis()
         var hesitationFired = false
 
@@ -59,14 +64,14 @@ class SpeechService(private val listener: SpeechListener) {
             val elapsed = now - lastTime
             lastTime = now
 
-            val isVoiced = rms(buf, n) > SPEECH_THRESHOLD
+            val isVoiced = rms(buf, n) > speechThreshold
 
             if (rec.acceptWaveForm(buf, n)) {
-                // Utterance boundary: run detection on final text, then reset state.
                 val text = parse(rec.result, "text")
                 Log.d(TAG, "result: $text")
                 lastPartial = ""
                 voicedMs = 0
+                silenceMs = 0
                 hesitationFired = false
                 mainHandler.post {
                     if (text.isNotBlank()) listener.onPartialResult(text)
@@ -74,21 +79,27 @@ class SpeechService(private val listener: SpeechListener) {
                 }
             } else {
                 val partial = parse(rec.partialResult, "partial")
+                val noWords = partial.isBlank() ||
+                        partial.trim().equals("i'm", ignoreCase = true)
 
-                // "i'm" is the small model's consistent mistranscription of "umm".
-                // Treat it the same as an empty partial for hesitation detection.
-                val noWords = partial.isBlank() || partial.trim().equals("i'm", ignoreCase = true)
-
-                if (isVoiced && noWords && !hesitationFired) {
+                if (!isVoiced) {
+                    // Silence: accumulate debounce timer; reset voicedMs after a sustained gap.
+                    silenceMs += elapsed
+                    if (silenceMs >= SILENCE_DEBOUNCE_MS) voicedMs = 0
+                } else if (noWords && !hesitationFired) {
+                    // Voiced with no recognized words: accumulate toward hesitation threshold.
+                    silenceMs = 0
                     voicedMs += elapsed
-                    if (voicedMs >= HESITATION_MS) {
+                    if (voicedMs >= hesitationMs) {
                         hesitationFired = true
-                        Log.d(TAG, "hesitation: ${voicedMs}ms voiced with no recognized words")
+                        voicedMs = 0
+                        Log.d(TAG, "hesitation detected after ${hesitationMs}ms voiced with no words")
                         mainHandler.post { listener.onPartialResult("uh") }
                     }
-                } else if (!noWords) {
-                    // Real words appeared — reset the hesitation window.
-                    voicedMs = 0
+                } else {
+                    // Either words appeared or hesitation already fired — reset windows.
+                    silenceMs = 0
+                    if (!noWords) voicedMs = 0
                 }
 
                 if (partial.isNotBlank() && partial != lastPartial) {
@@ -99,7 +110,6 @@ class SpeechService(private val listener: SpeechListener) {
             }
         }
 
-        // Flush any remaining audio at the end of the session.
         val finalText = parse(rec.finalResult, "text")
         if (finalText.isNotBlank()) {
             mainHandler.post {
@@ -111,7 +121,7 @@ class SpeechService(private val listener: SpeechListener) {
 
     fun stop() {
         active = false
-        audioRecord?.stop()        // makes ar.read() return an error, breaking the loop
+        audioRecord?.stop()
         captureThread?.join(1000)
         captureThread = null
         audioRecord?.release()
@@ -135,7 +145,6 @@ class SpeechService(private val listener: SpeechListener) {
         private const val TAG = "UhhNo"
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SAMPLES = 1600          // 100 ms per chunk at 16 kHz
-        private const val SPEECH_THRESHOLD = 600f       // RMS threshold on [-32768, 32767] scale
-        private const val HESITATION_MS = 500L          // voiced audio with no words before firing
+        private const val SILENCE_DEBOUNCE_MS = 150L    // gap before voicedMs resets
     }
 }

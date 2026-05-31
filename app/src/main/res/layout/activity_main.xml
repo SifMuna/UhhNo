@@ -52,6 +52,16 @@
             android:textSize="20sp"
             android:textColor="@color/subtitle"
             android:fontFamily="monospace" />
+
+        <ImageButton
+            android:id="@+id/btnSettings"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="12dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Settings"
+            app:srcCompat="@drawable/ic_settings"
+            app:tint="@color/subtitle" />
     </LinearLayout>
 
     <!-- ── Counter card ── -->

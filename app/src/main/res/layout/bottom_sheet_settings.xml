@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="12dp"
+    android:paddingBottom="40dp"
+    android:background="@color/background">
+
+    <!-- Drag handle -->
+    <View
+        android:layout_width="40dp"
+        android:layout_height="4dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="20dp"
+        android:background="@color/subtitle" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Detection Settings"
+        android:textColor="@color/white"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="28dp" />
+
+    <!-- Sensitivity -->
+    <TextView
+        android:id="@+id/tvSensitivityLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/subtitle"
+        android:textSize="13sp"
+        android:layout_marginBottom="2dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="How easily voiced sounds trigger hesitation detection."
+        android:textColor="@color/subtitle"
+        android:textSize="11sp"
+        android:alpha="0.7"
+        android:layout_marginBottom="4dp" />
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/sliderSensitivity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:valueFrom="0"
+        android:valueTo="10"
+        android:stepSize="1"
+        android:layout_marginBottom="28dp"
+        app:trackColorActive="@color/accent"
+        app:thumbColor="@color/accent"
+        app:tickVisible="false" />
+
+    <!-- Hesitation length -->
+    <TextView
+        android:id="@+id/tvHesitationLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="@color/subtitle"
+        android:textSize="13sp"
+        android:layout_marginBottom="2dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="How long you must hesitate before it counts."
+        android:textColor="@color/subtitle"
+        android:textSize="11sp"
+        android:alpha="0.7"
+        android:layout_marginBottom="4dp" />
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/sliderHesitation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:valueFrom="300"
+        android:valueTo="800"
+        android:stepSize="50"
+        app:trackColorActive="@color/accent"
+        app:thumbColor="@color/accent"
+        app:tickVisible="false" />
+
+</LinearLayout>

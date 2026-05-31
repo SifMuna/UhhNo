@@ -26,6 +26,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     private var isListening = false
     private var modelReady = false
     private var model: Model? = null
+    private lateinit var speechSettings: SpeechSettings
     private var fillerCount = 0
     private var sessionStartMs = 0L
     private val timerHandler = Handler(Looper.getMainLooper())
@@ -43,6 +44,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        speechSettings = SpeechSettings(this)
         setupRecyclerView()
         setupClickListeners()
         updateUI()
@@ -58,6 +60,9 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     private fun setupClickListeners() {
         binding.btnMic.setOnClickListener {
             if (isListening) stopSession() else checkPermissionAndStart()
+        }
+        binding.btnSettings.setOnClickListener {
+            SettingsSheet().show(supportFragmentManager, "settings")
         }
         binding.btnClear.setOnClickListener {
             fillerCount = 0
@@ -138,7 +143,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
         updateUI()
         timerHandler.post(timerRunnable)
 
-        speechService = SpeechService(this).also { it.start(m) }
+        speechService = SpeechService(this).also { it.start(m, speechSettings) }
 
         if (binding.switchRecord.isChecked) {
             audioRecorder = AudioRecorder(this)
@@ -170,6 +175,7 @@ class MainActivity : AppCompatActivity(), SpeechService.SpeechListener {
     private fun updateUI() {
         binding.tvFillerCount.text = fillerCount.toString()
         binding.btnMic.isEnabled = modelReady
+        binding.btnSettings.isEnabled = !isListening
         if (isListening) {
             binding.btnMic.text = "STOP"
             binding.btnMic.backgroundTintList =
